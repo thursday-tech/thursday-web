@@ -757,9 +757,9 @@ function makeCard(item) {
       ${img?`<img class="card-img" src="${img}" crossorigin="anonymous" loading="lazy" onload="this.classList.add('ok')" onerror="this.style.display='none'">`:'' }
       ${sel?`<div class="sel-badge">✓</div>`:''}
       <div class="card-overlay">
-        <button class="ov-btn red" onclick="event.stopPropagation();toggleSel(${item.id})">${sel?'✓ Remove':'+ Select'}</button>
-        <button class="ov-btn" onclick="event.stopPropagation();openModal(${item.id})">View details</button>
-        <button class="ov-btn" onclick="event.stopPropagation();quickCopy(${item.id})">⎘ Copy URL</button>
+        <button class="ov-btn red" onclick="event.stopPropagation();toggleSel('${item.id}')">${sel?'✓ Remove':'+ Select'}</button>
+        <button class="ov-btn" onclick="event.stopPropagation();openModal('${item.id}')">View details</button>
+        <button class="ov-btn" onclick="event.stopPropagation();quickCopy('${item.id}')">⎘ Copy URL</button>
       </div>
     </div>
     <div class="card-info">
@@ -787,8 +787,8 @@ function makeListRow(item) {
     </div>
     <div class="list-price">$${parseFloat(item.price).toFixed(2)}</div>
     <div class="list-acts">
-      <button class="btn ${sel?'btn-dim':'btn-ghost'}" style="font-size:10px;padding:5px 10px" onclick="toggleSel(${item.id})">${sel?'✓':'+ Select'}</button>
-      <button class="btn btn-ghost" style="font-size:10px;padding:5px 10px" onclick="openModal(${item.id})">Detail</button>
+      <button class="btn ${sel?'btn-dim':'btn-ghost'}" style="font-size:10px;padding:5px 10px" onclick="toggleSel('${item.id}')">${sel?'✓':'+ Select'}</button>
+      <button class="btn btn-ghost" style="font-size:10px;padding:5px 10px" onclick="openModal('${item.id}')">Detail</button>
     </div>`;
   return div;
 }
@@ -843,7 +843,7 @@ function renderPanel() {
         <div class="sel-meta">${item.brandName||''} · $${parseFloat(item.price).toFixed(2)}</div>
         <div class="sel-meta" style="margin-top:1px">${getSellerName(item)}</div>
       </div>
-      <button class="sel-rm" onclick="toggleSel(${item.id})">×</button>
+      <button class="sel-rm" onclick="toggleSel('${item.id}')">×</button>
     </div>`;
   }).join('');
 }
