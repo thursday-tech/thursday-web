@@ -890,13 +890,19 @@ function modalCopyUrl() {
   if (S.modalItem) { navigator.clipboard.writeText(getImg(S.modalItem)); toast('URL copied'); }
 }
 
-function modalDownload() {
+async function modalDownload() {
   if (!S.modalItem) return;
-  const a = document.createElement('a');
-  a.href = getImg(S.modalItem);
-  a.download = slugify(S.modalItem.name) + '.jpg';
-  a.target = '_blank';
-  a.click();
+  const url = getImg(S.modalItem);
+  if (!url) { toast('No image for this item'); return; }
+  const name = slugify(S.modalItem.name) || `item-${S.modalItem.id}`;
+  try {
+    const blob = await fetchBlob(url);
+    downloadBlob(blob, `${name}.${extFor(blob, url)}`);
+  } catch(e) {
+    // Cross-origin fetch blocked — fall back to opening the raw image
+    toast(`Download failed (${e.message}) — opening image`);
+    window.open(url, '_blank', 'noopener');
+  }
 }
 
 // ── QUICK ACTIONS ───────────────────────────────
@@ -914,6 +920,25 @@ async function fetchBlob(url) {
   const r = await fetch(url, {mode:'cors'});
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.blob();
+}
+
+function extFor(blob, url) {
+  const fromType = (blob.type||'').split('/')[1];
+  if (fromType) return fromType.split('+')[0];
+  return (url.split('?')[0].match(/\.(jpe?g|png|webp|gif)$/i)?.[1] || 'jpg').toLowerCase();
+}
+
+// The `download` attribute is ignored on cross-origin hrefs, and a detached
+// anchor doesn't reliably fire — always download from an in-DOM blob URL.
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1000);
 }
 
 async function removeBg(url) {
@@ -1089,61 +1114,72 @@ async function renderCard(item, imgBlob, {dark=false, showName=true, showPrice=t
 
 async function doExport() {
   if (!S.selected.length) return;
+  if (typeof JSZip === 'undefined') { toast('ZIP library failed to load — check your connection'); return; }
+
   const wT=document.getElementById('o-transp').checked;
   const wC=document.getElementById('o-card').checked;
   const wO=document.getElementById('o-orig').checked;
   const cN=document.getElementById('o-cname').checked;
   const cP=document.getElementById('o-cprice').checked;
   const cD=document.getElementById('o-cdark').checked;
+  if (!wT && !wC && !wO) { toast('Pick at least one export option'); return; }
 
   const zip=new JSZip();
   const total=S.selected.length;
-  let done=0;
+  let done=0, files=0;
   const prog=document.getElementById('exp-prog');
   const fill=document.getElementById('prog-fill');
   const lbl=document.getElementById('prog-lbl');
   const btn=document.getElementById('btn-exp');
   prog.style.display=''; btn.disabled=true; btn.textContent='Exporting...';
 
-  for (const item of S.selected) {
-    const slug=slugify(item.name)||`item-${item.id}`;
-    const imgUrl=getImg(item);
-    lbl.textContent=`${item.name}...`;
-    fill.style.width=`${Math.round((done/total)*100)}%`;
+  try {
+    for (const item of S.selected) {
+      const slug=slugify(item.name)||`item-${item.id}`;
+      const imgUrl=getImg(item);
+      lbl.textContent=`${item.name}...`;
+      fill.style.width=`${Math.round((done/total)*100)}%`;
 
-    if (wO && imgUrl) {
-      try { zip.file(`${slug}/original.jpg`, await fetchBlob(imgUrl)); } catch(e){}
-    }
-
-    let tBlob=null;
-    if ((wT||wC) && imgUrl) {
-      try { tBlob=await removeBg(imgUrl); if(wT) zip.file(`${slug}/transparent.png`,tBlob); }
-      catch(e) {
-        toast(`BG removal failed: ${e.message}`);
-        try { tBlob=await fetchBlob(imgUrl); } catch(_){}
+      if (wO && imgUrl) {
+        try {
+          const orig = await fetchBlob(imgUrl);
+          zip.file(`${slug}/original.${extFor(orig, imgUrl)}`, orig);
+          files++;
+        } catch(e){ console.warn(`Original failed for ${item.name}:`, e.message); }
       }
+
+      let tBlob=null;
+      if ((wT||wC) && imgUrl) {
+        try { tBlob=await removeBg(imgUrl); if(wT) { zip.file(`${slug}/transparent.png`,tBlob); files++; } }
+        catch(e) {
+          toast(`BG removal failed: ${e.message}`);
+          try { tBlob=await fetchBlob(imgUrl); } catch(_){}
+        }
+      }
+
+      if (wC && imgUrl) {
+        const src=tBlob||await fetchBlob(imgUrl).catch(()=>null);
+        const light=await renderCard(item,src,{dark:false,showName:cN,showPrice:cP});
+        if(light) { zip.file(`${slug}/card-light.png`,light); files++; }
+        if(cD) { const dark=await renderCard(item,src,{dark:true,showName:cN,showPrice:cP}); if(dark) { zip.file(`${slug}/card-dark.png`,dark); files++; } }
+      }
+
+      done++;
+      fill.style.width=`${Math.round((done/total)*100)}%`;
     }
 
-    if (wC && imgUrl) {
-      const src=tBlob||await fetchBlob(imgUrl).catch(()=>null);
-      const light=await renderCard(item,src,{dark:false,showName:cN,showPrice:cP});
-      if(light) zip.file(`${slug}/card-light.png`,light);
-      if(cD) { const dark=await renderCard(item,src,{dark:true,showName:cN,showPrice:cP}); if(dark) zip.file(`${slug}/card-dark.png`,dark); }
-    }
+    if (!files) { toast('Nothing exported — every image failed to load'); return; }
 
-    done++;
-    fill.style.width=`${Math.round((done/total)*100)}%`;
+    lbl.textContent='Generating ZIP...';
+    const zb=await zip.generateAsync({type:'blob'});
+    downloadBlob(zb, `thursday-assets-${new Date().toISOString().slice(0,10)}.zip`);
+    toast(`Exported ${files} file${files!==1?'s':''} from ${total} item${total!==1?'s':''}`);
+  } catch(e) {
+    console.error('Export failed:', e);
+    toast(`Export failed: ${e.message}`);
+  } finally {
+    prog.style.display='none'; btn.disabled=false; btn.textContent='Export ZIP';
   }
-
-  lbl.textContent='Generating ZIP...';
-  const zb=await zip.generateAsync({type:'blob'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(zb);
-  a.download=`thursday-assets-${new Date().toISOString().slice(0,10)}.zip`;
-  a.click();
-
-  prog.style.display='none'; btn.disabled=false; btn.textContent='Export ZIP';
-  toast(`Exported ${total} item${total!==1?'s':''}`);
 }
 
 // ── TOAST ───────────────────────────────────────
